@@ -1,4 +1,5 @@
 import pytest
+
 from contextforge.reranker import CrossEncoderReranker
 
 

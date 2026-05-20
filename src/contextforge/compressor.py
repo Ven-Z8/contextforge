@@ -44,7 +44,8 @@ class CompressionEngine:
             return text
 
         scores = scorer.score(query, sentences)
-        ranked = sorted(zip(range(len(sentences)), sentences, scores), key=lambda x: x[2], reverse=True)
+        indexed = list(zip(range(len(sentences)), sentences, scores, strict=True))
+        ranked = sorted(indexed, key=lambda x: x[2], reverse=True)
 
         selected: set[int] = set()
         used = 0

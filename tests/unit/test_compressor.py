@@ -1,5 +1,5 @@
-from contextforge.compressor import CompressionEngine
 from contextforge.budget import TokenCounter
+from contextforge.compressor import CompressionEngine
 from contextforge.models.source import SourceType
 
 

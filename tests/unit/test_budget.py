@@ -1,4 +1,4 @@
-from contextforge.budget import TokenCounter, BudgetAllocator
+from contextforge.budget import BudgetAllocator, TokenCounter
 
 
 def test_token_counter_approximate():

@@ -1,7 +1,7 @@
-from contextforge.window import ContextWindow
-from contextforge.models.source import Source, SourceType
-from contextforge.models.result import AssembledChunk
 from contextforge.budget import TokenCounter
+from contextforge.models.result import AssembledChunk
+from contextforge.models.source import Source, SourceType
+from contextforge.window import ContextWindow
 
 
 def _make_chunk(content: str, compressed: str, score: float = 0.9) -> AssembledChunk:

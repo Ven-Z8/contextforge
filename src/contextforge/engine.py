@@ -56,7 +56,8 @@ class ContextEngine:
         # Stage 1: Semantic filter — fast, keeps top_k
         bi_scores = self._scorer.score(query, [s.content for s in sources])
         top_k = min(self._top_k, len(sources))
-        filtered = [s for s, _ in sorted(zip(sources, bi_scores), key=lambda x: x[1], reverse=True)[:top_k]]
+        paired = sorted(zip(sources, bi_scores, strict=True), key=lambda x: x[1], reverse=True)
+        filtered = [s for s, _ in paired[:top_k]]
         log.debug("stage1_filter", input=len(sources), output=len(filtered))
 
         # Stage 2: Cross-encoder rerank — accurate, keeps top_n
@@ -70,7 +71,7 @@ class ContextEngine:
 
         # Stage 4: Content-type routing + extractive compression
         chunks: list[AssembledChunk] = []
-        for source, budget, score in zip(reranked, budgets, rerank_scores):
+        for source, budget, score in zip(reranked, budgets, rerank_scores, strict=True):
             content_type = self._router.detect(source.content)
             original_tokens = self._counter.count(source.content)
             compressed = self._compressor.compress(

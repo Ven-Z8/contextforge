@@ -1,5 +1,5 @@
-from contextforge.router import ContentTypeRouter
 from contextforge.models.source import SourceType
+from contextforge.router import ContentTypeRouter
 
 
 def test_detects_prose():

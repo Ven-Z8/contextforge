@@ -1,5 +1,5 @@
+from contextforge.models.result import AssembledChunk, RetentionScore
 from contextforge.models.source import Source, SourceType
-from contextforge.models.result import RetentionScore, AssembledChunk
 
 
 def test_source_defaults():
