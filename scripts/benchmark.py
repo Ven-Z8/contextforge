@@ -8,26 +8,29 @@ Requires: pip install contextforge[benchmark]
 from __future__ import annotations
 
 import argparse
+import random
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import anthropic
+import instructor
 import structlog
 from datasets import load_dataset
-from ragas import evaluate
-from ragas.metrics import context_precision, faithfulness
+from ragas.llms import InstructorLLM
+from ragas.metrics.collections import ContextPrecision, Faithfulness
 from rich.console import Console
 from rich.table import Table
 
 from contextforge import ContextEngine, Source
+from contextforge.core.config import settings
 
 log = structlog.get_logger(__name__)
 console = Console()
 
-ANTHROPIC_MODEL = "claude-haiku-4-5"
-COST_INPUT_PER_TOKEN = 0.00000025   # $0.25 per 1M input tokens
-COST_OUTPUT_PER_TOKEN = 0.00000125  # $1.25 per 1M output tokens
+ANTHROPIC_MODEL = "claude-sonnet-4-5"
+COST_INPUT_PER_TOKEN = 0.000003     # $3.00 per 1M input tokens
+COST_OUTPUT_PER_TOKEN = 0.000015    # $15.00 per 1M output tokens
 
 
 @dataclass
@@ -71,20 +74,29 @@ class RunResult:
 
 
 def ask_llm(
-    client: anthropic.Anthropic, context: str, question: str
+    client: anthropic.Anthropic, context: str, question: str, max_retries: int = 8
 ) -> tuple[str, int, int]:
-    msg = client.messages.create(
-        model=ANTHROPIC_MODEL,
-        max_tokens=256,
-        messages=[{
-            "role": "user",
-            "content": (
-                "Answer the question using ONLY the provided context. "
-                f"Be concise.\n\nContext:\n{context}\n\nQuestion: {question}\n\nAnswer:"
-            ),
-        }],
-    )
-    return msg.content[0].text, msg.usage.input_tokens, msg.usage.output_tokens
+    for attempt in range(max_retries):
+        try:
+            msg = client.messages.create(
+                model=ANTHROPIC_MODEL,
+                max_tokens=256,
+                messages=[{
+                    "role": "user",
+                    "content": (
+                        "Answer the question using ONLY the provided context. "
+                        f"Be concise.\n\nContext:\n{context}\n\nQuestion: {question}\n\nAnswer:"
+                    ),
+                }],
+            )
+            return msg.content[0].text, msg.usage.input_tokens, msg.usage.output_tokens
+        except anthropic.APIStatusError as exc:
+            if exc.status_code not in (429, 529) or attempt == max_retries - 1:
+                raise
+            wait = min(60, (2 ** attempt) + random.uniform(1, 3))
+            log.warning("api_retry", status=exc.status_code, attempt=attempt + 1,
+                        wait_s=round(wait, 1))
+            time.sleep(wait)
 
 
 def build_naive_context(titles: list[str], sentences: list[list[str]]) -> str:
@@ -112,18 +124,41 @@ def run_ragas_on_batch(
     answers: list[str],
     contexts: list[list[str]],
     ground_truths: list[str],
-) -> dict:
-    """Run real RAGAS evaluation on a batch."""
-    from datasets import Dataset as HFDataset
-    data = {
-        "question": questions,
-        "answer": answers,
-        "contexts": contexts,
-        "ground_truth": ground_truths,
+    api_key: str,
+) -> dict[str, list[float]]:
+    """Run real RAGAS evaluation on a batch — direct batch_score() API (bypasses evaluate()).
+
+    RAGAS 0.4.3 has a split-brain architecture: evaluate() type-checks against the old
+    Metric base class, but collections metrics extend a different BaseMetric hierarchy.
+    Calling batch_score() directly is the correct approach for collections metrics.
+    """
+    # AsyncAnthropic → AsyncInstructor so InstructorLLM.is_async=True → agenerate() works.
+    # Pop top_p: Anthropic rejects requests with both temperature AND top_p set.
+    async_anthropic = anthropic.AsyncAnthropic(api_key=api_key)
+    instructor_client = instructor.from_anthropic(async_anthropic)
+    llm = InstructorLLM(client=instructor_client, model=ANTHROPIC_MODEL, provider="anthropic")
+    llm.model_args.pop("top_p", None)
+
+    faith_metric = Faithfulness(llm=llm)
+    prec_metric = ContextPrecision(llm=llm)
+
+    faith_inputs = [
+        {"user_input": q, "response": a, "retrieved_contexts": c}
+        for q, a, c in zip(questions, answers, contexts, strict=True)
+    ]
+    prec_inputs = [
+        {"user_input": q, "reference": gt, "retrieved_contexts": c}
+        for q, gt, c in zip(questions, ground_truths, contexts, strict=True)
+    ]
+
+    # score() one at a time to respect TPM rate limits; the per-call cost is small
+    faith_results = [faith_metric.score(**inp) for inp in faith_inputs]
+    prec_results = [prec_metric.score(**inp) for inp in prec_inputs]
+
+    return {
+        "faithfulness": [r.value if r.value is not None else 0.0 for r in faith_results],
+        "context_precision": [r.value if r.value is not None else 0.0 for r in prec_results],
     }
-    dataset = HFDataset.from_dict(data)
-    result = evaluate(dataset, metrics=[faithfulness, context_precision])
-    return result
 
 
 def run_benchmark(n_questions: int = 100) -> dict[str, RunResult]:
@@ -134,7 +169,7 @@ def run_benchmark(n_questions: int = 100) -> dict[str, RunResult]:
 
     dataset = load_dataset("hotpot_qa", "distractor", split="validation", streaming=True)
     questions_data = list(dataset.take(n_questions))
-    client = anthropic.Anthropic()
+    client = anthropic.Anthropic(api_key=settings.anthropic_api_key or None)
     engine = ContextEngine(token_budget=4000, top_k=20, top_n=5)
     token_budget = 4000
 
@@ -197,14 +232,15 @@ def run_benchmark(n_questions: int = 100) -> dict[str, RunResult]:
 
     # Batch RAGAS evaluation for all strategies
     console.print("\n[bold]Running RAGAS evaluation...[/bold]")
+    api_key = settings.anthropic_api_key
     for key, r in results.items():
         console.print(f"  Evaluating {r.strategy}...")
         d = ragas_data[key]
-        ragas_result = run_ragas_on_batch(
-            d["questions"], d["answers"], d["contexts"], d["ground_truths"]
+        scores = run_ragas_on_batch(
+            d["questions"], d["answers"], d["contexts"], d["ground_truths"], api_key
         )
-        r.faithfulness_scores = ragas_result["faithfulness"].tolist()
-        r.context_precision_scores = ragas_result["context_precision"].tolist()
+        r.faithfulness_scores = scores["faithfulness"]
+        r.context_precision_scores = scores["context_precision"]
 
     return results
 
@@ -234,13 +270,13 @@ def write_markdown(results: dict[str, RunResult], output: Path, n: int) -> None:
     lines = [
         "## Evaluation Results",
         "",
-        f"**Setup:** HotpotQA distractor split, {n} questions, claude-haiku-4-5",
+        f"**Setup:** HotpotQA distractor split, {n} questions, {ANTHROPIC_MODEL}",
         "**Metrics:** Real RAGAS faithfulness + context_precision (not a proxy)",
         "**Token counting:** tiktoken cl100k_base (approximate, ~±5% vs actual Anthropic)",
         "**Reproduce:** `uv run python scripts/benchmark.py`",
         "",
-        "| Strategy | RAGAS Faithfulness | Context Precision | Cost/1k queries | Utilization | Latency p95 |",
-        "|----------|-------------------|-------------------|-----------------|-------------|-------------|",
+        "| Strategy | Faithfulness | Ctx Precision | Cost/1k | Utilization | Latency p95 |",
+        "|----------|-------------|---------------|---------|-------------|-------------|",
     ]
     for r in results.values():
         util = f"{r.avg_utilization:.1%}" if r.utilizations else "N/A"
