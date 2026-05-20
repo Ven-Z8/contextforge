@@ -1,0 +1,55 @@
+[project]
+name = "contextforge"
+version = "0.1.0"
+description = "Evidence-preserving context optimizer for LLM and RAG systems."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+keywords = ["llm", "context", "rag", "token-budget", "context-engineering"]
+dependencies = [
+    "tiktoken>=0.7.0",
+    "pydantic>=2.8.0",
+    "pydantic-settings>=2.4.0",
+    "structlog>=24.0.0",
+    "typer>=0.12.0",
+]
+
+[project.optional-dependencies]
+local = [
+    "sentence-transformers>=3.0.0",
+    "numpy>=1.26.0",
+]
+benchmark = [
+    "ragas>=0.2.0",
+    "datasets>=2.20.0",
+    "rich>=13.7.0",
+    "anthropic>=0.40.0",
+]
+dev = [
+    "pytest>=8.2.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.6.0",
+    "sentence-transformers>=3.0.0",
+    "numpy>=1.26.0",
+]
+
+[project.scripts]
+contextforge = "contextforge.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/contextforge"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
