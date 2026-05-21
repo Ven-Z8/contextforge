@@ -1,19 +1,10 @@
 # ContextForge
 
-**Evidence-preserving context optimizer for LLM and RAG systems.**
+> **Status: Work in progress.** Code runs, but the design, API, and benchmarks are not finalized. No performance claims are being made yet.
 
-ContextForge cuts LLM input cost while improving answer quality — by filtering, reranking, and extractively compressing context before it hits the model. No summarization. Every surviving token is verbatim.
+Evidence-preserving context optimizer for LLM and RAG systems.
 
-## Benchmark results (HotpotQA, 500 questions)
-
-| Metric | Baseline (top-5 bi-encoder) | ContextForge |
-|--------|----------------------------|--------------|
-| RAGAS faithfulness | 0.76 | > 0.84 |
-| Cost per 1k queries | $1.80 | < $1.00 |
-| Context utilization | 55% | > 85% |
-| Latency p95 | 2.8s | < 2.0s |
-
-*Results populated after `make bench`*
+ContextForge filters, reranks, and extractively compresses context before it reaches the model. No summarization. Every surviving token is verbatim.
 
 ## Install
 
@@ -29,22 +20,22 @@ pip install "contextforge[benchmark]"       # + RAGAS evals
 Query
   │
   ▼
-SemanticScorer      ← bi-encoder cosine filter (top-k candidates)
+SemanticScorer       ← bi-encoder cosine filter (top-k candidates)
   │
   ▼
 CrossEncoderReranker ← cross-encoder precision rerank (top-n)
   │
   ▼
-ContentTypeRouter   ← prose / code / structured detection
+ContentTypeRouter    ← prose / code / structured detection
   │
   ▼
-CompressionEngine   ← extractive sentence-level compression (prose only)
+CompressionEngine    ← extractive sentence-level compression (prose only)
   │
   ▼
-BudgetAllocator     ← token budget enforcement
+BudgetAllocator      ← token budget enforcement
   │
   ▼
-ContextWindow       ← assembled output with source attribution
+ContextWindow        ← assembled output with source attribution
 ```
 
 ## Usage
@@ -66,10 +57,16 @@ print(window.total_tokens)     # tokens used
 print(window.chunks)           # per-chunk attribution + compression ratio
 ```
 
-## Evals
+## Commands
 
 ```bash
 make bench   # runs HotpotQA benchmark, outputs docs/benchmarks.md
 make evals   # runs RAGAS suite
 make test    # unit + integration
 ```
+
+Benchmark numbers and methodology will be published in `docs/benchmarks.md` after the suite stabilizes.
+
+## License
+
+TBD.

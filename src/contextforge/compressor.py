@@ -38,7 +38,7 @@ class CompressionEngine:
 
         from contextforge.scorer import SemanticScorer
 
-        scorer = SemanticScorer()
+        scorer = SemanticScorer()  # model is cached by sentence-transformers after first load
         sentences = _split_sentences(text)
         if not sentences:
             return text

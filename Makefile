@@ -10,6 +10,7 @@ lint:
 	uv run ruff check src/ tests/
 
 bench:
+	uv sync --extra benchmark --extra local
 	uv run python scripts/benchmark.py
 
 evals:
