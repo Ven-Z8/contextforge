@@ -4,6 +4,8 @@ from contextforge.core.config import Settings
 def test_settings_defaults():
     s = Settings()
     assert s.provider == "anthropic"
+    assert s.benchmark_model == "deepseek/deepseek-v4-flash"
+    assert s.openrouter_base_url == "https://openrouter.ai/api/v1"
     assert s.token_budget == 8000
     assert s.top_k == 20
     assert s.top_n == 5

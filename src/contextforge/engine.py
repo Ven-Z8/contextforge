@@ -45,7 +45,7 @@ class ContextEngine:
         self._scorer = scorer or SemanticScorer(settings.scorer_model)
         self._reranker = reranker or CrossEncoderReranker(settings.reranker_model)
         self._router = ContentTypeRouter()
-        self._compressor = compressor or CompressionEngine()
+        self._compressor = compressor or CompressionEngine(scorer=self._scorer)
         self._allocator = BudgetAllocator()
         log.info("engine_ready", budget=self._budget, top_k=self._top_k, top_n=self._top_n)
 

@@ -10,6 +10,11 @@ HotpotQA distractor split (validation set)
 Default: 100 questions
 Smoke test: 10 questions (--n 10)
 
+## Evaluation Modes
+- `--skip-ragas` — iteration mode. Reports cost, latency, token usage, and utilization only.
+- `--fast-eval` — deterministic proxy mode. Reports whether the answer/context contains the gold answer string. This is not RAGAS.
+- default — full RAGAS mode. Runs real faithfulness + context_precision judge calls and is slower.
+
 ## Baselines
 1. **Naive RAG** — all 10 context paragraphs concatenated, no filtering
 2. **Strong Baseline** — bi-encoder top-5 selection only (no reranking, no compression)
@@ -18,17 +23,17 @@ Smoke test: 10 questions (--n 10)
 ## Models
 - Scoring: all-MiniLM-L6-v2 (local, 22MB)
 - Reranking: cross-encoder/ms-marco-MiniLM-L-6-v2 (local, 22MB)
-- LLM: claude-haiku-4-5 (fast, cost-effective for benchmarking)
+- LLM: deepseek/deepseek-v4-flash via OpenRouter (fast, cost-effective for benchmarking)
 
 ## Metrics
 - **RAGAS Faithfulness** — real RAGAS library (ragas>=0.2), not a proxy metric
-- **Cost per 1k queries** — calculated from Anthropic API usage.input_tokens + usage.output_tokens
+- **Cost per 1k queries** — calculated from OpenRouter native prompt/completion token usage
 - **Context utilization** — token_count(context) / token_budget
 - **Latency p95** — wall-clock time, 95th percentile across all questions
 
 ## Token Counting
-Uses tiktoken cl100k_base — approximate for Anthropic (~±5% error margin).
-Cost calculations use Anthropic's published pricing for Claude Haiku.
+Local budget enforcement uses tiktoken cl100k_base as an approximation.
+Cost calculations use OpenRouter native token counts and configured DeepSeek V4 Flash pricing.
 
 ## Known Limitations
 - Token counting is approximate, not exact

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from typing import Protocol
 
 from contextforge.budget import TokenCounter
 from contextforge.core.logger import get_logger
@@ -13,12 +14,26 @@ def _split_sentences(text: str) -> list[str]:
     return [s.strip() for s in re.split(r"(?<=[.!?])\s+", text.strip()) if s.strip()]
 
 
+class SentenceScorer(Protocol):
+    def score(self, query: str, documents: list[str]) -> list[float]: ...
+
+
 class CompressionEngine:
     """Extractive sentence-level compression for prose ONLY.
 
     Code and structured data are returned verbatim — no exceptions.
     This is not lossy compression: every returned token is original text.
     """
+
+    def __init__(self, scorer: SentenceScorer | None = None) -> None:
+        self._scorer = scorer
+
+    def _get_scorer(self) -> SentenceScorer:
+        if self._scorer is None:
+            from contextforge.scorer import SemanticScorer
+
+            self._scorer = SemanticScorer()
+        return self._scorer
 
     def compress(
         self,
@@ -36,14 +51,11 @@ class CompressionEngine:
         if counter.count(text) <= target_tokens:
             return text
 
-        from contextforge.scorer import SemanticScorer
-
-        scorer = SemanticScorer()  # model is cached by sentence-transformers after first load
         sentences = _split_sentences(text)
         if not sentences:
             return text
 
-        scores = scorer.score(query, sentences)
+        scores = self._get_scorer().score(query, sentences)
         indexed = list(zip(range(len(sentences)), sentences, scores, strict=True))
         ranked = sorted(indexed, key=lambda x: x[2], reverse=True)
 

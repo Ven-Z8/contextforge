@@ -1,4 +1,4 @@
-.PHONY: install test lint bench evals clean
+.PHONY: install test lint bench bench-fast bench-ragas evals clean
 
 install:
 	uv sync --extra dev
@@ -11,7 +11,15 @@ lint:
 
 bench:
 	uv sync --extra benchmark --extra local
-	uv run python scripts/benchmark.py
+	uv run python scripts/benchmark.py --n 10 --skip-ragas
+
+bench-fast:
+	uv sync --extra benchmark --extra local
+	uv run python scripts/benchmark.py --n 10 --fast-eval
+
+bench-ragas:
+	uv sync --extra benchmark --extra local
+	uv run python scripts/benchmark.py --n 10
 
 evals:
 	uv run pytest tests/evals -v

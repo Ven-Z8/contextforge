@@ -52,17 +52,18 @@ sources = [
 
 window = engine.build(query="What caused the 2008 financial crisis?", sources=sources)
 
-print(window.assembled_text)   # context ready to inject
-print(window.total_tokens)     # tokens used
+print(window.render())         # context ready to inject
+print(window.token_count())    # tokens used
 print(window.chunks)           # per-chunk attribution + compression ratio
 ```
 
 ## Commands
 
 ```bash
-make bench   # runs HotpotQA benchmark, outputs docs/benchmarks.md
-make evals   # runs RAGAS suite
-make test    # unit + integration
+make bench        # HotpotQA cost/latency/utilization, skips slow RAGAS
+make bench-fast   # HotpotQA with deterministic proxy quality metrics
+make bench-ragas  # HotpotQA with real RAGAS judge metrics
+make test         # unit + integration
 ```
 
 Benchmark numbers and methodology will be published in `docs/benchmarks.md` after the suite stabilizes.

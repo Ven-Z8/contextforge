@@ -8,29 +8,29 @@ Requires: pip install contextforge[benchmark]
 from __future__ import annotations
 
 import argparse
+import asyncio
+import json
 import random
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
-import anthropic
-import instructor
 import structlog
 from datasets import load_dataset
-from ragas.llms import InstructorLLM
-from ragas.metrics.collections import ContextPrecision, Faithfulness
 from rich.console import Console
 from rich.table import Table
 
 from contextforge import ContextEngine, Source
 from contextforge.core.config import settings
+from contextforge.llm import OpenRouterClient, OpenRouterError, retry_delay
 
 log = structlog.get_logger(__name__)
 console = Console()
 
-ANTHROPIC_MODEL = "claude-sonnet-4-5"
-COST_INPUT_PER_TOKEN = 0.000003     # $3.00 per 1M input tokens
-COST_OUTPUT_PER_TOKEN = 0.000015    # $15.00 per 1M output tokens
+BENCHMARK_MODEL = settings.benchmark_model
+COST_INPUT_PER_TOKEN = settings.benchmark_input_cost_per_1m / 1_000_000
+COST_OUTPUT_PER_TOKEN = settings.benchmark_output_cost_per_1m / 1_000_000
 
 
 @dataclass
@@ -73,30 +73,116 @@ class RunResult:
         return sum(self.utilizations) / max(len(self.utilizations), 1)
 
 
+@dataclass(frozen=True)
+class EvalConfig:
+    mode: str
+    quality_label: str
+    context_label: str
+
+
+def metric_cell(scores: list[float]) -> str:
+    if not scores:
+        return "N/A"
+    return f"{sum(scores) / len(scores):.3f}"
+
+
 def ask_llm(
-    client: anthropic.Anthropic, context: str, question: str, max_retries: int = 8
+    client: OpenRouterClient, context: str, question: str, max_retries: int = 8
 ) -> tuple[str, int, int]:
     for attempt in range(max_retries):
         try:
-            msg = client.messages.create(
-                model=ANTHROPIC_MODEL,
+            msg = client.chat(
+                model=BENCHMARK_MODEL,
                 max_tokens=256,
-                messages=[{
-                    "role": "user",
-                    "content": (
-                        "Answer the question using ONLY the provided context. "
-                        f"Be concise.\n\nContext:\n{context}\n\nQuestion: {question}\n\nAnswer:"
-                    ),
-                }],
+                messages=[
+                    {
+                        "role": "user",
+                        "content": (
+                            "Answer the question using ONLY the provided context. "
+                            f"Be concise.\n\nContext:\n{context}\n\nQuestion: {question}\n\nAnswer:"
+                        ),
+                    }
+                ],
             )
-            return msg.content[0].text, msg.usage.input_tokens, msg.usage.output_tokens
-        except anthropic.APIStatusError as exc:
-            if exc.status_code not in (429, 529) or attempt == max_retries - 1:
+            return msg.text, msg.input_tokens, msg.output_tokens
+        except OpenRouterError as exc:
+            if exc.status_code not in (429, 500, 502, 503, 504) or attempt == max_retries - 1:
                 raise
-            wait = min(60, (2 ** attempt) + random.uniform(1, 3))
+            wait = retry_delay(attempt) + random.uniform(1, 3)
             log.warning("api_retry", status=exc.status_code, attempt=attempt + 1,
                         wait_s=round(wait, 1))
             time.sleep(wait)
+    raise OpenRouterError("OpenRouter retry loop exhausted")
+
+
+def _extract_json_object(text: str) -> str:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.removeprefix("```json").removeprefix("```").strip()
+        stripped = stripped.removesuffix("```").strip()
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        raise OpenRouterError(f"Expected JSON object from judge model, got: {text[:200]}")
+    return stripped[start : end + 1]
+
+
+def json_dumps_compact(value: Any) -> str:
+    return json.dumps(value, separators=(",", ":"), ensure_ascii=True)
+
+
+class _OpenRouterStructuredCompletions:
+    def __init__(self, client: OpenRouterClient) -> None:
+        self._client = client
+
+    async def create(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, str]],
+        response_model: type,
+        max_tokens: int = 2048,
+        temperature: float = 0.0,
+        **_: Any,
+    ) -> Any:
+        schema = response_model.model_json_schema()
+        schema_text = json_dumps_compact(schema)
+        json_instruction = {
+            "role": "system",
+            "content": (
+                "Return only valid JSON matching the provided schema. "
+                "Do not include markdown fences or commentary.\n\n"
+                f"Schema:\n{schema_text}"
+            ),
+        }
+        last_error: Exception | None = None
+        for attempt in range(3):
+            try:
+                response = await asyncio.to_thread(
+                    self._client.chat,
+                    model=model,
+                    messages=[json_instruction, *messages],
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    response_format={"type": "json_object"},
+                )
+                return response_model.model_validate_json(_extract_json_object(response.text))
+            except Exception as exc:
+                last_error = exc
+                if attempt == 2:
+                    break
+                await asyncio.sleep(retry_delay(attempt))
+        raise OpenRouterError(f"Structured judge call failed: {last_error}") from last_error
+
+
+class _OpenRouterStructuredChat:
+    def __init__(self, client: OpenRouterClient) -> None:
+        self.completions = _OpenRouterStructuredCompletions(client)
+
+
+class OpenRouterStructuredClient:
+    def __init__(self, client: OpenRouterClient) -> None:
+        self.chat = _OpenRouterStructuredChat(client)
 
 
 def build_naive_context(titles: list[str], sentences: list[list[str]]) -> str:
@@ -107,10 +193,8 @@ def build_naive_context(titles: list[str], sentences: list[list[str]]) -> str:
 
 
 def build_strong_baseline(
-    query: str, titles: list[str], sentences: list[list[str]]
+    query: str, titles: list[str], sentences: list[list[str]], model: Any
 ) -> str:
-    from sentence_transformers import SentenceTransformer
-    model = SentenceTransformer("all-MiniLM-L6-v2")
     texts = [" ".join(s) for s in sentences]
     q_emb = model.encode(query, normalize_embeddings=True)
     d_embs = model.encode(texts, normalize_embeddings=True)
@@ -124,7 +208,7 @@ def run_ragas_on_batch(
     answers: list[str],
     contexts: list[list[str]],
     ground_truths: list[str],
-    api_key: str,
+    client: OpenRouterClient,
 ) -> dict[str, list[float]]:
     """Run real RAGAS evaluation on a batch — direct batch_score() API (bypasses evaluate()).
 
@@ -132,12 +216,17 @@ def run_ragas_on_batch(
     Metric base class, but collections metrics extend a different BaseMetric hierarchy.
     Calling batch_score() directly is the correct approach for collections metrics.
     """
-    # AsyncAnthropic → AsyncInstructor so InstructorLLM.is_async=True → agenerate() works.
-    # Pop top_p: Anthropic rejects requests with both temperature AND top_p set.
-    async_anthropic = anthropic.AsyncAnthropic(api_key=api_key)
-    instructor_client = instructor.from_anthropic(async_anthropic)
-    llm = InstructorLLM(client=instructor_client, model=ANTHROPIC_MODEL, provider="anthropic")
-    llm.model_args.pop("top_p", None)
+    from ragas.llms import InstructorLLM
+    from ragas.metrics.collections import ContextPrecision, Faithfulness
+
+    structured_client = OpenRouterStructuredClient(client)
+    llm = InstructorLLM(
+        client=structured_client,
+        model=BENCHMARK_MODEL,
+        provider="openrouter",
+        max_tokens=1024,
+        temperature=0.0,
+    )
 
     faith_metric = Faithfulness(llm=llm)
     prec_metric = ContextPrecision(llm=llm)
@@ -151,9 +240,16 @@ def run_ragas_on_batch(
         for q, gt, c in zip(questions, ground_truths, contexts, strict=True)
     ]
 
-    # score() one at a time to respect TPM rate limits; the per-call cost is small
-    faith_results = [faith_metric.score(**inp) for inp in faith_inputs]
-    prec_results = [prec_metric.score(**inp) for inp in prec_inputs]
+    # score() one at a time to respect TPM rate limits and surface progress.
+    faith_results = []
+    for idx, inp in enumerate(faith_inputs, start=1):
+        console.print(f"    faithfulness {idx}/{len(faith_inputs)}")
+        faith_results.append(faith_metric.score(**inp))
+
+    prec_results = []
+    for idx, inp in enumerate(prec_inputs, start=1):
+        console.print(f"    context_precision {idx}/{len(prec_inputs)}")
+        prec_results.append(prec_metric.score(**inp))
 
     return {
         "faithfulness": [r.value if r.value is not None else 0.0 for r in faith_results],
@@ -161,16 +257,63 @@ def run_ragas_on_batch(
     }
 
 
-def run_benchmark(n_questions: int = 100) -> dict[str, RunResult]:
+def normalize_for_match(text: str) -> str:
+    return " ".join(text.lower().split())
+
+
+def run_fast_eval_on_batch(
+    answers: list[str],
+    contexts: list[list[str]],
+    ground_truths: list[str],
+) -> dict[str, list[float]]:
+    """Cheap deterministic proxy metrics for iteration.
+
+    This is not RAGAS. It answers two practical smoke-test questions:
+    1. Did the answer include the gold answer string?
+    2. Did the selected context include the gold answer string?
+    """
+    answer_contains: list[float] = []
+    context_contains: list[float] = []
+    for answer, ctx_list, ground_truth in zip(answers, contexts, ground_truths, strict=True):
+        gt = normalize_for_match(ground_truth)
+        answer_contains.append(float(gt in normalize_for_match(answer)))
+        context_contains.append(float(gt in normalize_for_match("\n".join(ctx_list))))
+    return {
+        "quality": answer_contains,
+        "context": context_contains,
+    }
+
+
+def run_benchmark(
+    n_questions: int = 100,
+    eval_config: EvalConfig | None = None,
+) -> dict[str, RunResult]:
+    eval_config = eval_config or EvalConfig(
+        mode="ragas",
+        quality_label="RAGAS Faithfulness",
+        context_label="Context Precision",
+    )
     console.print(
         f"\n[bold]ContextForge Benchmark — HotpotQA[/bold] ({n_questions} questions)\n"
     )
-    console.print("[yellow]Using real RAGAS metrics — faithfulness + context_precision[/yellow]\n")
+    if eval_config.mode == "ragas":
+        console.print(
+            "[yellow]Using real RAGAS metrics — faithfulness + context_precision[/yellow]\n"
+        )
+    elif eval_config.mode == "fast":
+        console.print("[yellow]Using fast deterministic proxy metrics — not RAGAS[/yellow]\n")
+    else:
+        console.print(
+            "[yellow]Skipping quality eval; measuring cost, latency, utilization[/yellow]\n"
+        )
 
     dataset = load_dataset("hotpot_qa", "distractor", split="validation", streaming=True)
     questions_data = list(dataset.take(n_questions))
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key or None)
+    client = OpenRouterClient()
     engine = ContextEngine(token_budget=4000, top_k=20, top_n=5)
+    from sentence_transformers import SentenceTransformer
+
+    baseline_model = SentenceTransformer("all-MiniLM-L6-v2")
     token_budget = 4000
 
     results = {
@@ -204,7 +347,7 @@ def run_benchmark(n_questions: int = 100) -> dict[str, RunResult]:
         ragas_data["naive"]["ground_truths"].append(ground_truth)
 
         # Strong baseline — bi-encoder top-5 only
-        strong_ctx = build_strong_baseline(question, titles, sents)
+        strong_ctx = build_strong_baseline(question, titles, sents, baseline_model)
         t0 = time.time()
         strong_ans, strong_in, strong_out = ask_llm(client, strong_ctx, question)
         results["strong"].total_input_tokens += strong_in
@@ -230,26 +373,39 @@ def run_benchmark(n_questions: int = 100) -> dict[str, RunResult]:
         ragas_data["contextforge"]["contexts"].append([cf_ctx])
         ragas_data["contextforge"]["ground_truths"].append(ground_truth)
 
-    # Batch RAGAS evaluation for all strategies
-    console.print("\n[bold]Running RAGAS evaluation...[/bold]")
-    api_key = settings.anthropic_api_key
+    # Quality evaluation for all strategies
+    if eval_config.mode == "none":
+        return results
+
+    if eval_config.mode == "ragas":
+        console.print("\n[bold]Running RAGAS evaluation...[/bold]")
+    else:
+        console.print("\n[bold]Running fast proxy evaluation...[/bold]")
+
     for key, r in results.items():
         console.print(f"  Evaluating {r.strategy}...")
         d = ragas_data[key]
-        scores = run_ragas_on_batch(
-            d["questions"], d["answers"], d["contexts"], d["ground_truths"], api_key
-        )
-        r.faithfulness_scores = scores["faithfulness"]
-        r.context_precision_scores = scores["context_precision"]
+        if eval_config.mode == "ragas":
+            scores = run_ragas_on_batch(
+                d["questions"], d["answers"], d["contexts"], d["ground_truths"], client
+            )
+            r.faithfulness_scores = scores["faithfulness"]
+            r.context_precision_scores = scores["context_precision"]
+        else:
+            scores = run_fast_eval_on_batch(
+                d["answers"], d["contexts"], d["ground_truths"]
+            )
+            r.faithfulness_scores = scores["quality"]
+            r.context_precision_scores = scores["context"]
 
     return results
 
 
-def print_table(results: dict[str, RunResult]) -> None:
-    table = Table(title="ContextForge Benchmark Results (real RAGAS)")
+def print_table(results: dict[str, RunResult], eval_config: EvalConfig) -> None:
+    table = Table(title=f"ContextForge Benchmark Results ({eval_config.mode})")
     table.add_column("Strategy")
-    table.add_column("RAGAS Faithfulness", justify="right")
-    table.add_column("Context Precision", justify="right")
+    table.add_column(eval_config.quality_label, justify="right")
+    table.add_column(eval_config.context_label, justify="right")
     table.add_column("Cost/1k queries", justify="right")
     table.add_column("Utilization", justify="right")
     table.add_column("Latency p95", justify="right")
@@ -257,8 +413,8 @@ def print_table(results: dict[str, RunResult]) -> None:
         util = f"{r.avg_utilization:.1%}" if r.utilizations else "N/A"
         table.add_row(
             r.strategy,
-            f"{r.avg_faithfulness:.3f}",
-            f"{r.avg_context_precision:.3f}",
+            metric_cell(r.faithfulness_scores),
+            metric_cell(r.context_precision_scores),
             f"${r.cost_per_1k:.2f}",
             util,
             f"{r.latency_p95:.2f}s",
@@ -266,22 +422,44 @@ def print_table(results: dict[str, RunResult]) -> None:
     console.print(table)
 
 
-def write_markdown(results: dict[str, RunResult], output: Path, n: int) -> None:
+def write_markdown(
+    results: dict[str, RunResult],
+    output: Path,
+    n: int,
+    eval_config: EvalConfig,
+    reproduce_command: str,
+) -> None:
+    metrics_line = {
+        "ragas": "**Metrics:** Real RAGAS faithfulness + context_precision (not a proxy)",
+        "fast": (
+            "**Metrics:** Fast deterministic proxies: answer contains gold answer + "
+            "context contains gold answer (not RAGAS)"
+        ),
+        "none": "**Metrics:** Quality evaluation skipped; cost/latency/utilization only",
+    }[eval_config.mode]
     lines = [
         "## Evaluation Results",
         "",
-        f"**Setup:** HotpotQA distractor split, {n} questions, {ANTHROPIC_MODEL}",
-        "**Metrics:** Real RAGAS faithfulness + context_precision (not a proxy)",
-        "**Token counting:** tiktoken cl100k_base (approximate, ~±5% vs actual Anthropic)",
-        "**Reproduce:** `uv run python scripts/benchmark.py`",
+        f"**Setup:** HotpotQA distractor split, {n} questions, {BENCHMARK_MODEL} via OpenRouter",
+        metrics_line,
+        (
+            "**Token counting:** OpenRouter native usage for API cost; "
+            "tiktoken cl100k_base for local budget estimates"
+        ),
+        f"**Reproduce:** `{reproduce_command}`",
         "",
-        "| Strategy | Faithfulness | Ctx Precision | Cost/1k | Utilization | Latency p95 |",
+        (
+            f"| Strategy | {eval_config.quality_label} | {eval_config.context_label} "
+            "| Cost/1k | Utilization | Latency p95 |"
+        ),
         "|----------|-------------|---------------|---------|-------------|-------------|",
     ]
     for r in results.values():
         util = f"{r.avg_utilization:.1%}" if r.utilizations else "N/A"
+        quality = metric_cell(r.faithfulness_scores)
+        context = metric_cell(r.context_precision_scores)
         lines.append(
-            f"| {r.strategy} | {r.avg_faithfulness:.3f} | {r.avg_context_precision:.3f} "
+            f"| {r.strategy} | {quality} | {context} "
             f"| ${r.cost_per_1k:.2f} | {util} | {r.latency_p95:.2f}s |"
         )
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -295,7 +473,46 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output", type=Path, default=Path("docs/benchmarks.md"), help="Output markdown file"
     )
+    parser.add_argument(
+        "--fast-eval",
+        action="store_true",
+        help="Use cheap deterministic proxy metrics instead of RAGAS",
+    )
+    parser.add_argument(
+        "--skip-ragas",
+        action="store_true",
+        help="Skip quality evaluation and only report cost, latency, and utilization",
+    )
     args = parser.parse_args()
-    results = run_benchmark(args.n)
-    print_table(results)
-    write_markdown(results, args.output, args.n)
+    if args.fast_eval and args.skip_ragas:
+        parser.error("--fast-eval and --skip-ragas are mutually exclusive")
+
+    if args.skip_ragas:
+        eval_config = EvalConfig(
+            mode="none",
+            quality_label="Quality",
+            context_label="Context Quality",
+        )
+    elif args.fast_eval:
+        eval_config = EvalConfig(
+            mode="fast",
+            quality_label="Answer Contains GT",
+            context_label="Context Contains GT",
+        )
+    else:
+        eval_config = EvalConfig(
+            mode="ragas",
+            quality_label="RAGAS Faithfulness",
+            context_label="Context Precision",
+        )
+
+    reproduce = f"uv run --extra benchmark python scripts/benchmark.py --n {args.n}"
+    if args.fast_eval:
+        reproduce += " --fast-eval"
+    if args.skip_ragas:
+        reproduce += " --skip-ragas"
+    reproduce += f" --output {args.output}"
+
+    results = run_benchmark(args.n, eval_config)
+    print_table(results, eval_config)
+    write_markdown(results, args.output, args.n, eval_config, reproduce)

@@ -3,6 +3,15 @@ from contextforge.compressor import CompressionEngine
 from contextforge.models.source import SourceType
 
 
+class FakeScorer:
+    def __init__(self):
+        self.calls = 0
+
+    def score(self, _query, documents):
+        self.calls += 1
+        return [float(i) for i, _ in enumerate(documents)]
+
+
 def test_prose_within_budget_unchanged():
     engine = CompressionEngine()
     counter = TokenCounter()
@@ -45,3 +54,25 @@ def test_prose_retains_relevant_sentences():
     )
     result = engine.compress(text, "Python programming", target_tokens=40, content_type=SourceType.PROSE, counter=counter)
     assert "Python" in result
+
+
+def test_reuses_injected_scorer_for_compression():
+    scorer = FakeScorer()
+    engine = CompressionEngine(scorer=scorer)
+    counter = TokenCounter()
+    text = (
+        "First sentence has low score. "
+        "Second sentence has medium score. "
+        "Third sentence has the highest score."
+    )
+
+    result = engine.compress(
+        text,
+        "highest score",
+        target_tokens=12,
+        content_type=SourceType.PROSE,
+        counter=counter,
+    )
+
+    assert scorer.calls == 1
+    assert "Third sentence" in result
