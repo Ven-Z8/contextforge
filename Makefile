@@ -1,4 +1,4 @@
-.PHONY: install test lint bench bench-fast bench-ragas evals clean
+.PHONY: install test lint bench bench-fast bench-ragas bench-public evals clean
 
 install:
 	uv sync --extra dev
@@ -20,6 +20,10 @@ bench-fast:
 bench-ragas:
 	uv sync --extra benchmark --extra local
 	uv run python scripts/benchmark.py --n 10
+
+bench-public:
+	uv sync --extra benchmark --extra local
+	uv run python benchmarks/eval.py --dataset natural_questions --n 25
 
 evals:
 	uv run pytest tests/evals -v

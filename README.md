@@ -63,6 +63,7 @@ print(window.chunks)           # per-chunk attribution + compression ratio
 make bench        # HotpotQA cost/latency/utilization, skips slow RAGAS
 make bench-fast   # HotpotQA with deterministic proxy quality metrics
 make bench-ragas  # HotpotQA with real RAGAS judge metrics
+make bench-public # Natural Questions public retrieval benchmark
 make test         # unit + integration
 ```
 

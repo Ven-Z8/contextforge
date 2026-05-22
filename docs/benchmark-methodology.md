@@ -6,6 +6,11 @@ HotpotQA distractor split (validation set)
 - Each question has 10 context paragraphs (2 supporting, 8 distractors)
 - Ground truth answers provided
 
+Natural Questions dev split
+- Public Wikipedia question-answering corpus
+- Uses document tokens and top-level long-answer candidates as retrieval candidates
+- Evaluates whether selected context contains a gold short answer string
+
 ## Sample Size
 Default: 100 questions
 Smoke test: 10 questions (--n 10)
@@ -19,6 +24,18 @@ Smoke test: 10 questions (--n 10)
 1. **Naive RAG** — all 10 context paragraphs concatenated, no filtering
 2. **Strong Baseline** — bi-encoder top-5 selection only (no reranking, no compression)
 3. **ContextForge** — full pipeline: bi-encoder filter → cross-encoder rerank → budget compress
+
+## Public Retrieval Benchmark
+`benchmarks/eval.py` runs public context-selection evals against Natural Questions:
+
+```bash
+uv run --extra benchmark python benchmarks/eval.py --dataset natural_questions --n 25
+```
+
+Strategies:
+1. **Raw candidate top-k** — first long-answer candidates from the public dataset
+2. **Vector top-k** — local MiniLM semantic scoring over candidates
+3. **Vector top-k + ContextForge** — vector retrieval candidates optimized by ContextForge
 
 ## Models
 - Scoring: all-MiniLM-L6-v2 (local, 22MB)
