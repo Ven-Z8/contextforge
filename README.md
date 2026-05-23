@@ -64,11 +64,12 @@ make bench        # HotpotQA cost/latency/utilization, skips slow RAGAS
 make bench-fast   # HotpotQA with deterministic proxy quality metrics
 make bench-ragas  # HotpotQA with real RAGAS judge metrics
 make bench-public # Natural Questions public retrieval benchmark
+make bench-qdrant # Natural Questions with in-memory Qdrant dense/hybrid retrieval
 make test         # unit + integration
 ```
 
 Benchmark numbers and methodology live in `docs/benchmarks.md`, `docs/public-benchmarks.md`,
-and `docs/benchmark-methodology.md`.
+`docs/qdrant-benchmarks.md`, and `docs/benchmark-methodology.md`.
 
 ## License
 

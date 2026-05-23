@@ -1,4 +1,4 @@
-.PHONY: install test lint bench bench-fast bench-ragas bench-public evals clean
+.PHONY: install test lint bench bench-fast bench-ragas bench-public bench-qdrant evals clean
 
 install:
 	uv sync --extra dev
@@ -24,6 +24,10 @@ bench-ragas:
 bench-public:
 	uv sync --extra benchmark --extra local
 	uv run python benchmarks/eval.py --dataset natural_questions --n 100
+
+bench-qdrant:
+	uv sync --extra benchmark --extra local --extra qdrant
+	uv run python benchmarks/eval.py --dataset natural_questions --n 25 --include-qdrant --output docs/qdrant-benchmarks.md
 
 evals:
 	uv run pytest tests/evals -v

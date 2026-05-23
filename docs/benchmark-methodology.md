@@ -33,11 +33,25 @@ Smoke test: 5-10 questions (`--n 5` or `--n 10`)
 uv run --extra benchmark python benchmarks/eval.py --dataset natural_questions --n 100
 ```
 
+Qdrant comparison mode:
+
+```bash
+uv run --extra benchmark --extra qdrant python benchmarks/eval.py \
+  --dataset natural_questions --n 25 --include-qdrant --output docs/qdrant-benchmarks.md
+```
+
 Strategies:
 1. **Shuffled candidate top-k** — fixed-seed shuffled public candidates, no scoring
 2. **BM25 top-k** — lexical sparse baseline
 3. **Vector top-k** — local MiniLM semantic scoring over candidates
-4. **Vector top-k + ContextForge** — vector retrieval candidates optimized by ContextForge
+4. **Qdrant dense top-k** — in-memory Qdrant dense vector search
+5. **Qdrant hybrid top-k** — Qdrant dense + sparse prefetch with RRF fusion
+6. **Vector top-k + ContextForge** — vector retrieval candidates optimized by ContextForge
+7. **Qdrant hybrid + ContextForge** — Qdrant hybrid candidates optimized by ContextForge
+
+Qdrant mode uses an in-memory per-example collection so it requires no Docker server. Reported
+Qdrant latencies measure query-time ranking; per-example index construction is excluded because
+production retrieval systems index before serving queries.
 
 ## Models
 - Scoring: all-MiniLM-L6-v2 (local, 22MB)

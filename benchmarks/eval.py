@@ -151,6 +151,7 @@ def evaluate_example(
     token_budget: int,
     retrieved_k: int,
     raw_top_k: int,
+    include_qdrant: bool,
     results: dict[str, StrategyResult],
 ) -> None:
     total_relevant = len(evidence_positions(example.contexts, example.answers))
@@ -202,6 +203,64 @@ def evaluate_example(
         counter=counter,
         latency_s=time.perf_counter() - t0,
     )
+
+    if include_qdrant:
+        from benchmarks.qdrant_backend import QdrantContextIndex
+
+        qdrant_index = QdrantContextIndex(example.contexts, scorer._model)
+
+        t0 = time.perf_counter()
+        qdrant_dense_contexts = qdrant_index.rank_dense(example.question)
+        qdrant_dense_rendered = "\n\n---\n\n".join(qdrant_dense_contexts[:raw_top_k])
+        record_result(
+            results["qdrant_dense"],
+            rendered_context=qdrant_dense_rendered,
+            ranked_contexts=qdrant_dense_contexts,
+            total_relevant=total_relevant,
+            source_count=len(qdrant_dense_contexts[:raw_top_k]),
+            token_budget=token_budget,
+            answers=example.answers,
+            counter=counter,
+            latency_s=time.perf_counter() - t0,
+        )
+
+        t0 = time.perf_counter()
+        qdrant_hybrid_contexts = qdrant_index.rank_hybrid(example.question)
+        qdrant_hybrid_rendered = "\n\n---\n\n".join(qdrant_hybrid_contexts[:raw_top_k])
+        record_result(
+            results["qdrant_hybrid"],
+            rendered_context=qdrant_hybrid_rendered,
+            ranked_contexts=qdrant_hybrid_contexts,
+            total_relevant=total_relevant,
+            source_count=len(qdrant_hybrid_contexts[:raw_top_k]),
+            token_budget=token_budget,
+            answers=example.answers,
+            counter=counter,
+            latency_s=time.perf_counter() - t0,
+        )
+
+        t0 = time.perf_counter()
+        sources = [
+            Source(
+                content=context,
+                source_id=f"{example.id}:qdrant-hybrid:{idx}",
+                path=example.metadata.get("title"),
+            )
+            for idx, context in enumerate(qdrant_hybrid_contexts[:retrieved_k])
+        ]
+        window = engine.build(query=example.question, sources=sources)
+        contextforge_contexts = [chunk.compressed_content for chunk in window.chunks]
+        record_result(
+            results["qdrant_contextforge"],
+            rendered_context=window.render(),
+            ranked_contexts=contextforge_contexts,
+            total_relevant=total_relevant,
+            source_count=window.source_count(),
+            token_budget=token_budget,
+            answers=example.answers,
+            counter=counter,
+            latency_s=time.perf_counter() - t0,
+        )
 
     t0 = time.perf_counter()
     retrieved_contexts = ranked_contexts[:retrieved_k]
@@ -265,6 +324,7 @@ def write_markdown(
         f"**Dataset:** Natural Questions dev split, {args.n} examples",
         f"**Candidate order:** shuffled with fixed seed `{args.seed}`",
         "**Task:** context selection over public Natural Questions long-answer candidates",
+        f"**Qdrant backend:** {'enabled' if args.include_qdrant else 'disabled'}",
         (
             "**Evidence hit:** selected context contains a gold short answer string. "
             "This benchmark does not judge final LLM answer quality."
@@ -288,6 +348,25 @@ def write_markdown(
             f"| {result.avg_utilization:.1%} | {result.avg_sources:.1f} "
             f"| {result.latency_p50:.2f}s | {result.latency_p95:.2f}s |"
         )
+    if args.include_qdrant:
+        lines.extend(
+            [
+                "",
+                "### Reading This Result",
+                "",
+                (
+                    "Qdrant dense should track the local vector baseline because both use the "
+                    "same embedding model."
+                ),
+                "",
+                (
+                    "Qdrant hybrid measures whether dense + sparse fusion improves evidence "
+                    "retrieval before ContextForge compression. If hybrid recall is higher than "
+                    "the ContextForge row, the next engineering target is compression/reranking "
+                    "tuning that preserves the hybrid retriever's recall while reducing tokens."
+                ),
+            ]
+        )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text("\n".join(lines), encoding="utf-8")
     console.print(f"[green]Saved to {output}[/green]")
@@ -309,8 +388,17 @@ def run(args: argparse.Namespace) -> dict[str, StrategyResult]:
         "raw": StrategyResult("Shuffled candidate top-k"),
         "bm25": StrategyResult("BM25 top-k"),
         "vector": StrategyResult("Vector top-k"),
-        "contextforge": StrategyResult("Vector top-k + ContextForge"),
     }
+    if args.include_qdrant:
+        results.update(
+            {
+                "qdrant_dense": StrategyResult("Qdrant dense top-k"),
+                "qdrant_hybrid": StrategyResult("Qdrant hybrid top-k"),
+            }
+        )
+    results["contextforge"] = StrategyResult("Vector top-k + ContextForge")
+    if args.include_qdrant:
+        results["qdrant_contextforge"] = StrategyResult("Qdrant hybrid + ContextForge")
 
     examples = iter_natural_questions(
         n=args.n,
@@ -329,6 +417,7 @@ def run(args: argparse.Namespace) -> dict[str, StrategyResult]:
             token_budget=args.token_budget,
             retrieved_k=args.retrieved_k,
             raw_top_k=args.raw_top_k,
+            include_qdrant=args.include_qdrant,
             results=results,
         )
     return results
@@ -346,6 +435,7 @@ def main() -> None:
     parser.add_argument("--contextforge-top-n", type=int, default=5)
     parser.add_argument("--token-budget", type=int, default=4000)
     parser.add_argument("--seed", type=int, default=13)
+    parser.add_argument("--include-qdrant", action="store_true")
     parser.add_argument("--output", type=Path, default=Path("docs/public-benchmarks.md"))
     args = parser.parse_args()
 
