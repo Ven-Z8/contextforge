@@ -68,8 +68,9 @@ make bench-qdrant # Natural Questions with in-memory Qdrant dense/hybrid retriev
 make test         # unit + integration
 ```
 
-Benchmark numbers and methodology live in `docs/benchmarks.md`, `docs/public-benchmarks.md`,
-`docs/qdrant-benchmarks.md`, and `docs/benchmark-methodology.md`.
+Benchmark numbers, gates, and methodology live in `docs/benchmarks.md`,
+`docs/public-benchmarks.md`, `docs/qdrant-benchmarks.md`, `docs/qdrant-gates.md`,
+`docs/qdrant-failure-analysis.md`, and `docs/benchmark-methodology.md`.
 
 ## License
 

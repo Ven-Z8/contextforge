@@ -37,7 +37,10 @@ Qdrant comparison mode:
 
 ```bash
 uv run --extra benchmark --extra qdrant python benchmarks/eval.py \
-  --dataset natural_questions --n 25 --include-qdrant --output docs/qdrant-benchmarks.md
+  --dataset natural_questions --n 100 --include-qdrant \
+  --output docs/qdrant-benchmarks.md \
+  --failure-output docs/qdrant-failure-analysis.md \
+  --gates-output docs/qdrant-gates.md
 ```
 
 Strategies:
@@ -52,6 +55,15 @@ Strategies:
 Qdrant mode uses an in-memory per-example collection so it requires no Docker server. Reported
 Qdrant latencies measure query-time ranking; per-example index construction is excluded because
 production retrieval systems index before serving queries.
+
+Qdrant mode also writes:
+- `docs/qdrant-failure-analysis.md` — examples where evidence is lost after ContextForge or a
+  ContextForge output exceeds the token budget
+- `docs/qdrant-gates.md` — pass/fail gates for recall preservation, token reduction, and budget
+  compliance
+
+Failed gates block broad benchmark claims. They are still useful evidence and should be reported
+as limitations instead of hidden.
 
 ## Models
 - Scoring: all-MiniLM-L6-v2 (local, 22MB)

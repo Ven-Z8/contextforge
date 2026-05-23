@@ -27,7 +27,7 @@ bench-public:
 
 bench-qdrant:
 	uv sync --extra benchmark --extra local --extra qdrant
-	uv run python benchmarks/eval.py --dataset natural_questions --n 25 --include-qdrant --output docs/qdrant-benchmarks.md
+	uv run python benchmarks/eval.py --dataset natural_questions --n 100 --include-qdrant --output docs/qdrant-benchmarks.md
 
 evals:
 	uv run pytest tests/evals -v
