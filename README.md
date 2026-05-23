@@ -67,7 +67,8 @@ make bench-public # Natural Questions public retrieval benchmark
 make test         # unit + integration
 ```
 
-Benchmark numbers and methodology will be published in `docs/benchmarks.md` after the suite stabilizes.
+Benchmark numbers and methodology live in `docs/benchmarks.md`, `docs/public-benchmarks.md`,
+and `docs/benchmark-methodology.md`.
 
 ## License
 

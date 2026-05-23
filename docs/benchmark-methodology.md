@@ -10,10 +10,11 @@ Natural Questions dev split
 - Public Wikipedia question-answering corpus
 - Uses document tokens and top-level long-answer candidates as retrieval candidates
 - Evaluates whether selected context contains a gold short answer string
+- Shuffles candidate order with a fixed seed so source ordering is not a hidden baseline advantage
 
 ## Sample Size
-Default: 100 questions
-Smoke test: 10 questions (--n 10)
+Default public retrieval benchmark: 100 questions
+Smoke test: 5-10 questions (`--n 5` or `--n 10`)
 
 ## Evaluation Modes
 - `--skip-ragas` — iteration mode. Reports cost, latency, token usage, and utilization only.
@@ -29,13 +30,14 @@ Smoke test: 10 questions (--n 10)
 `benchmarks/eval.py` runs public context-selection evals against Natural Questions:
 
 ```bash
-uv run --extra benchmark python benchmarks/eval.py --dataset natural_questions --n 25
+uv run --extra benchmark python benchmarks/eval.py --dataset natural_questions --n 100
 ```
 
 Strategies:
-1. **Raw candidate top-k** — first long-answer candidates from the public dataset
-2. **Vector top-k** — local MiniLM semantic scoring over candidates
-3. **Vector top-k + ContextForge** — vector retrieval candidates optimized by ContextForge
+1. **Shuffled candidate top-k** — fixed-seed shuffled public candidates, no scoring
+2. **BM25 top-k** — lexical sparse baseline
+3. **Vector top-k** — local MiniLM semantic scoring over candidates
+4. **Vector top-k + ContextForge** — vector retrieval candidates optimized by ContextForge
 
 ## Models
 - Scoring: all-MiniLM-L6-v2 (local, 22MB)
@@ -46,7 +48,12 @@ Strategies:
 - **RAGAS Faithfulness** — real RAGAS library (ragas>=0.2), not a proxy metric
 - **Cost per 1k queries** — calculated from OpenRouter native prompt/completion token usage
 - **Context utilization** — token_count(context) / token_budget
-- **Latency p95** — wall-clock time, 95th percentile across all questions
+- **Evidence recall** — selected context contains at least one gold short answer string
+- **Recall@5 / Recall@10** — answer evidence appears within top 5 or top 10 ranked candidates
+- **MRR** — reciprocal rank of first answer-bearing candidate
+- **NDCG@10** — ranking quality for answer-bearing candidates at depth 10
+- **Tokens per evidence hit** — total selected context tokens divided by evidence hits
+- **Latency p50 / p95** — wall-clock time across all questions
 
 ## Token Counting
 Local budget enforcement uses tiktoken cl100k_base as an approximation.
@@ -58,3 +65,5 @@ Cost calculations use OpenRouter native token counts and configured DeepSeek V4 
 - HotpotQA distractor split has simpler distractors than production RAG noise
 - Local models (MiniLM) will produce lower scores than larger models (voyage-3, Cohere Rerank)
 - Results are a lower bound — upgrading models improves all metrics
+- Natural Questions benchmark is still context selection over provided public candidates, not full corpus retrieval
+- Gold evidence is approximated by short-answer string containment, so it is useful but not a substitute for qrels

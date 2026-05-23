@@ -23,7 +23,7 @@ bench-ragas:
 
 bench-public:
 	uv sync --extra benchmark --extra local
-	uv run python benchmarks/eval.py --dataset natural_questions --n 25
+	uv run python benchmarks/eval.py --dataset natural_questions --n 100
 
 evals:
 	uv run pytest tests/evals -v
