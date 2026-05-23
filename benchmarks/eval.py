@@ -367,6 +367,43 @@ def write_markdown(
                 ),
             ]
         )
+        vector = results.get("vector")
+        hybrid = results.get("qdrant_hybrid")
+        contextforge = results.get("contextforge")
+        hybrid_contextforge = results.get("qdrant_contextforge")
+        if vector and hybrid and contextforge and hybrid_contextforge:
+            hybrid_recall_lift = hybrid.evidence_recall - vector.evidence_recall
+            hybrid_token_delta = hybrid.avg_tokens - vector.avg_tokens
+            contextforge_token_reduction = (
+                1 - contextforge.avg_tokens / vector.avg_tokens
+                if vector.avg_tokens
+                else 0.0
+            )
+            hybrid_contextforge_recall_gap = (
+                hybrid.evidence_recall - hybrid_contextforge.evidence_recall
+            )
+            lines.extend(
+                [
+                    "",
+                    "### Current Run Notes",
+                    "",
+                    (
+                        f"- Qdrant hybrid recall delta vs vector: "
+                        f"{hybrid_recall_lift:+.3f}; avg token delta: "
+                        f"{hybrid_token_delta:+.0f}."
+                    ),
+                    (
+                        f"- Vector top-k + ContextForge token reduction vs vector: "
+                        f"{contextforge_token_reduction:.1%}; recall delta: "
+                        f"{contextforge.evidence_recall - vector.evidence_recall:+.3f}."
+                    ),
+                    (
+                        f"- Qdrant hybrid + ContextForge recall gap vs Qdrant hybrid: "
+                        f"{hybrid_contextforge_recall_gap:+.3f}. Treat this as a limitation, "
+                        "not a win, until compression preserves the hybrid retriever's lift."
+                    ),
+                ]
+            )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text("\n".join(lines), encoding="utf-8")
     console.print(f"[green]Saved to {output}[/green]")
