@@ -132,6 +132,34 @@ def test_gate_report_marks_failed_recall_preservation(tmp_path):
     assert "| Vector token reduction | PASS | reduction=50.0%; min=30.0% |" in content
 
 
+def test_gate_report_allows_exact_recall_drop_threshold(tmp_path):
+    import argparse
+
+    results = {
+        "vector": StrategyResult("Vector top-k", examples=100, evidence_hits=81, total_tokens=1000),
+        "contextforge": StrategyResult(
+            "Vector top-k + ContextForge", examples=100, evidence_hits=80, total_tokens=500
+        ),
+    }
+    output = tmp_path / "gates.md"
+
+    write_gate_report(
+        results,
+        [],
+        output,
+        argparse.Namespace(
+            n=100,
+            token_budget=100,
+            include_qdrant=False,
+            max_recall_drop=0.01,
+            min_token_reduction=0.30,
+        ),
+    )
+
+    content = output.read_text()
+    assert "| Vector recall preserved | PASS | drop=0.010; max=0.010 |" in content
+
+
 def test_failure_analysis_reports_qdrant_loss(tmp_path):
     import argparse
 

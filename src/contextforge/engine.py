@@ -49,6 +49,23 @@ class ContextEngine:
         self._allocator = BudgetAllocator()
         log.info("engine_ready", budget=self._budget, top_k=self._top_k, top_n=self._top_n)
 
+    def _enforce_budget(self, query: str, chunks: list[AssembledChunk]) -> ContextWindow:
+        kept = list(chunks)
+        window = ContextWindow(query=query, chunks=kept, counter=self._counter)
+        while kept and window.token_count() > self._budget:
+            drop_index = min(range(len(kept)), key=lambda idx: kept[idx].score)
+            dropped = kept.pop(drop_index)
+            log.warning(
+                "budget_chunk_dropped",
+                source_id=dropped.source.source_id,
+                path=dropped.source.path,
+                score=dropped.score,
+                tokens=dropped.compressed_tokens,
+                budget=self._budget,
+            )
+            window = ContextWindow(query=query, chunks=kept, counter=self._counter)
+        return window
+
     def build(self, query: str, sources: list[Source]) -> ContextWindow:
         if not sources:
             return ContextWindow(query=query, chunks=[], counter=self._counter)
@@ -89,7 +106,7 @@ class ContextEngine:
                 )
             )
 
-        window = ContextWindow(query=query, chunks=chunks, counter=self._counter)
+        window = self._enforce_budget(query=query, chunks=chunks)
         log.info(
             "build_complete",
             sources_used=window.source_count(),

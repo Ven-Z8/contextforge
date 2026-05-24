@@ -28,6 +28,7 @@ from contextforge.scorer import SemanticScorer
 console = Console()
 
 TOKEN_RE = re.compile(r"\b\w+\b")
+FLOAT_TOLERANCE = 1e-9
 
 
 @dataclass(frozen=True)
@@ -636,7 +637,7 @@ def write_gate_report(
     gates = [
         (
             "Vector recall preserved",
-            recall_drop("vector", "contextforge") <= args.max_recall_drop,
+            recall_drop("vector", "contextforge") <= args.max_recall_drop + FLOAT_TOLERANCE,
             f"drop={recall_drop('vector', 'contextforge'):.3f}; max={args.max_recall_drop:.3f}",
         ),
         (
@@ -658,7 +659,8 @@ def write_gate_report(
             [
                 (
                     "Qdrant hybrid recall preserved",
-                    recall_drop("qdrant_hybrid", "qdrant_contextforge") <= args.max_recall_drop,
+                    recall_drop("qdrant_hybrid", "qdrant_contextforge")
+                    <= args.max_recall_drop + FLOAT_TOLERANCE,
                     (
                         f"drop={recall_drop('qdrant_hybrid', 'qdrant_contextforge'):.3f}; "
                         f"max={args.max_recall_drop:.3f}"

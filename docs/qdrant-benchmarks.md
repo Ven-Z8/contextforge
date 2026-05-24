@@ -10,11 +10,11 @@
 |----------|-----------------|-----|------|-----|---------|------------|------------|-------------|-------------|-------------|-------------|
 | Shuffled candidate top-k | 0.610 | 0.610 | 0.750 | 0.400 | 0.383 | 1135 | 1861 | 28.4% | 4.9 | 0.00s | 0.00s |
 | BM25 top-k | 0.770 | 0.770 | 0.870 | 0.564 | 0.525 | 1403 | 1822 | 35.1% | 4.9 | 0.00s | 0.00s |
-| Vector top-k | 0.810 | 0.810 | 0.920 | 0.633 | 0.584 | 1217 | 1502 | 30.4% | 4.9 | 0.14s | 0.32s |
+| Vector top-k | 0.810 | 0.810 | 0.920 | 0.633 | 0.584 | 1217 | 1502 | 30.4% | 4.9 | 0.14s | 0.25s |
 | Qdrant dense top-k | 0.810 | 0.810 | 0.920 | 0.633 | 0.584 | 1217 | 1502 | 30.4% | 4.9 | 0.01s | 0.01s |
 | Qdrant hybrid top-k | 0.830 | 0.830 | 0.920 | 0.621 | 0.601 | 1764 | 2125 | 44.1% | 4.9 | 0.01s | 0.01s |
-| Vector top-k + ContextForge | 0.810 | 0.810 | 0.810 | 0.664 | 0.516 | 727 | 898 | 18.2% | 4.9 | 0.28s | 0.55s |
-| Qdrant hybrid + ContextForge | 0.810 | 0.810 | 0.810 | 0.664 | 0.515 | 765 | 945 | 19.1% | 4.9 | 0.35s | 0.71s |
+| Vector top-k + ContextForge | 0.800 | 0.800 | 0.800 | 0.662 | 0.514 | 722 | 903 | 18.1% | 4.8 | 0.26s | 0.47s |
+| Qdrant hybrid + ContextForge | 0.800 | 0.800 | 0.800 | 0.662 | 0.514 | 760 | 950 | 19.0% | 4.8 | 0.31s | 0.53s |
 
 ### Reading This Result
 
@@ -25,5 +25,5 @@ Qdrant hybrid measures whether dense + sparse fusion improves evidence retrieval
 ### Current Run Notes
 
 - Qdrant hybrid recall delta vs vector: +0.020; avg token delta: +547.
-- Vector top-k + ContextForge token reduction vs vector: 40.3%; recall delta: +0.000.
-- Qdrant hybrid + ContextForge recall gap vs Qdrant hybrid: +0.020. Treat this as a limitation, not a win, until compression preserves the hybrid retriever's lift.
+- Vector top-k + ContextForge token reduction vs vector: 40.7%; recall delta: -0.010.
+- Qdrant hybrid + ContextForge recall gap vs Qdrant hybrid: +0.030. Treat this as a limitation, not a win, until compression preserves the hybrid retriever's lift.

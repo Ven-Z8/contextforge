@@ -12,6 +12,7 @@ This file lists benchmark failures directly. It is meant for engineering triage,
 | `1474401183034409997` | when does the last episode of adventure time air | TBA | True / False | 3209 / 815 |
 | `-8526247506624400769` | who won oscar for best director this month | Guillermo del Toro | True / False | 12759 / 359 |
 | `-4135209844918483842` | who carried the us flag in the 2014 olympics | Julie Chu, Todd Lodwick | True / False | 1601 / 763 |
+| `5543510584551366341` | when did the celebrities enter the big brother house | 2017, February 7, 2018 | True / False | 4326 / 3877 |
 | `-8022345911863395279` | the father son and holy spirit in latin | in nomine Patris et Filii et Spiritus Sancti, Patris et F... | True / False | 670 / 662 |
 | `1065612251914840415` | who is the girl in the stone sour video say you'll haunt me | Joanna Moskawa | True / False | 704 / 615 |
 | `6009212502620981150` | what's the biggest nfl stadium in the united states | MetLife Stadium, Michigan Stadium | True / False | 11521 / 402 |
@@ -23,6 +24,7 @@ This file lists benchmark failures directly. It is meant for engineering triage,
 | Example | Question | Answers | Vector Hit / ContextForge Hit | Vector Tokens / ContextForge Tokens |
 |---------|----------|---------|-------------------------------|-----------------------------------|
 | `-8526247506624400769` | who won oscar for best director this month | Guillermo del Toro | True / False | 12758 / 335 |
+| `5543510584551366341` | when did the celebrities enter the big brother house | 2017, February 7, 2018 | True / False | 4326 / 3865 |
 | `-8022345911863395279` | the father son and holy spirit in latin | in nomine Patris et Filii et Spiritus Sancti, Patris et F... | True / False | 670 / 632 |
 | `6009212502620981150` | what's the biggest nfl stadium in the united states | MetLife Stadium, Michigan Stadium | True / False | 11521 / 384 |
 | `-1003552412210538439` | who has the most all ireland hurling medals | Henry Shefflin | True / False | 20577 / 724 |
@@ -33,5 +35,4 @@ This file lists benchmark failures directly. It is meant for engineering triage,
 
 | Example | Strategy | Question | Tokens | Utilization |
 |---------|----------|----------|--------|-------------|
-| `5543510584551366341` | Qdrant hybrid + ContextForge | when did the celebrities enter the big brother house | 4374 | 109.3% |
-| `5543510584551366341` | Vector top-k + ContextForge | when did the celebrities enter the big brother house | 4344 | 108.6% |
+| none | none | none | none | none |
