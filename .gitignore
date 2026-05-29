@@ -6,3 +6,11 @@ dist/
 .env
 *.pyc
 .DS_Store
+
+# Process/planning docs — local only (see public-repo policy)
+docs/superpowers/
+PORTFOLIO.md
+AUDIT-*.md
+docs/cursor/
+docs/harness/
+**/docs/superpowers/
